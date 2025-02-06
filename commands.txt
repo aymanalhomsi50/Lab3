@@ -1,0 +1,31 @@
+för at kompilera sram.sh
+chmod +x sram.sh
+sudo ./sram.sh "R 5"
+
+pytrhon delen
+sudo hcitool lescan
+
+
+to check the database
+mysql -u sensor_user -p
+USE sensor_data;
+SELECT * FROM heart_rate;
+
+to create the database
+CREATE DATABASE sensor_data;
+CREATE USER 'sensor_user'@'localhost' IDENTIFIED BY 'your_password';
+GRANT ALL PRIVILEGES ON sensor_data.* TO 'sensor_user'@'localhost';
+FLUSH PRIVILEGES;
+
+to create table
+USE sensor_data;
+CREATE TABLE heart_rate (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    value INT,
+    raw_data BLOB
+);
+
+to resolve the premmision denied error
+sudo chmod 666 /dev/sram_control
+
