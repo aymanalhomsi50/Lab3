@@ -6,10 +6,10 @@ import serial  # Bibliotek för att kommunicera med Arduino via seriell port
 
 
 database_config = {
-    'host': 'localhost',       # Databasens värdnamn
-    'user': 'user_sensor',     # Användarnamn 
-    'password': 'aymanali1122',     # Lösenord för användare 
-    'database': 'sensor_readings'  # Namn på databasen
+    'host': 'localhost',
+    'user': 'sensor_user',
+    'password': 'aymanali1122',
+    'database': 'sensor_data'
 }
 
 # BLE-konfiguration 
