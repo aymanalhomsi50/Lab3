@@ -13,7 +13,7 @@ database_config = {
 }
 
 # BLE-konfiguration 
-BLE_DEVICE_ADDRESS = "6D:30:D1:10:EA:41"  # Adress till BLE-enheten (nRF5340)
+DEVICE_ADDRESS = "E8:78:20:78:84:EC"  # Adress till BLE-enheten (nRF5340)
 HR_UUID = "2A37"  # UUID för Heart Rate Measurement
 
 # Arduino-konfiguration
