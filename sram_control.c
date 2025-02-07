@@ -1,146 +1,136 @@
-#include <linux/init.h>        
-#include <linux/module.h>       
-#include <linux/kernel.h>       
-#include <linux/fs.h>            
-#include <linux/uaccess.h>       
-#include <linux/serial_core.h>   
-#include <linux/serial.h>       
-#include <linux/tty.h>           
-#include <linux/delay.h>        
+#include <linux/init.h>
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/fs.h>
+#include <linux/uaccess.h>
+#include <linux/serial_core.h>
+#include <linux/serial.h>
+#include <linux/tty.h>
+#include <linux/delay.h>
 
-#define DRIVER_NAME "sram_manager"  
-#define CLASS_LABEL "sram_device"  
-#define MAX_BUFFER_SIZE 128         
+#define DEVICE_NAME "sram_control"
+#define CLASS_NAME "sram"
+#define BUFFER_SIZE 128
 
-static int dev_major;                     // Huvudnummer för enheten som ska registreras
-static struct class* sram_dev_class = NULL; // Klass för enheten
-static struct device* sram_dev = NULL;     // Enhetsstruktur
-static char kernel_buffer[MAX_BUFFER_SIZE]; // Buffert för att lagra data som läses från Arduino
+static int major_number;
+static struct class* sram_class = NULL;
+static struct device* sram_device = NULL;
+static char response_buffer[BUFFER_SIZE];
 
-// Funktion som anropas när enheten öppnas
-static int device_open(struct inode *inodep, struct file *filep) {
-    printk(KERN_INFO "SRAM Manager: Device opened\n");  
-    return 0;  //framgång
-}
-
-// Funktion som anropas när enheten stängs
-static int device_close(struct inode *inodep, struct file *filep) {
-    printk(KERN_INFO "SRAM Manager: Device closed\n");  // Loggar att enheten stängdes
-    return 0;  // framgång
-}
-
-// Funktion som läser data från bufferten och skickar den till användaren
-static ssize_t device_read(struct file *filep, char *user_buffer, size_t len, loff_t *offset) {
-    int bytes_to_read = 0;  
-    int result = 0;       
-
-    if (*offset >= strlen(kernel_buffer)) return 0;  // Om vi är vid slutet av bufferten, returnera 0
-
-    bytes_to_read = strlen(kernel_buffer) - *offset;  // Beräkna antalet byte som ska läsas
-    if (bytes_to_read > len) bytes_to_read = len;    // Begränsa antalet byte om det överskrider bufferten
-
-    result = copy_to_user(user_buffer, kernel_buffer + *offset, bytes_to_read);  // Kopiera data till användarutrymme
-    if (result == 0) {
-        *offset += bytes_to_read;  // Uppdatera offset
-        return bytes_to_read;      
-    } else {
-        return -EFAULT;  // Returnera fel om kopiering misslyckades
-    }
-}
-
-// Funktion som skriver data till den seriella porten och tar emot svar
-static ssize_t device_write(struct file *filep, const char *user_buffer, size_t len, loff_t *offset) {
-    char command[32];           // Buffert för att lagra kommandot
-    struct file *serial_port;   // Pekare till den seriella porten
-    int write_result, read_len = 0;  // Variabler för skriv- och läsresultat
-    char read_data[MAX_BUFFER_SIZE]; // Buffert för att lagra svar från Arduino
-
-    if (len > 31) len = 31;  // kommandolängden till 31 tecken
-    if (copy_from_user(command, user_buffer, len)) {  // Kopiera kommandot från användarutrymme till kärna
-        printk(KERN_ALERT "SRAM Manager: Failed to copy data from user\n");
-        return -EFAULT;  // Returnera fel 
-    }
-    command[len] = '\0';  //  avsluta strängen
-
-    // Öppna den seriella porten (Arduino är ansluten till /dev/ttyACM0)
-    serial_port = filp_open("/dev/ttyACM0", O_RDWR, 0);
-    if (IS_ERR(serial_port)) {  // Kontrollera om öppningen misslyckades
-        printk(KERN_ALERT "SRAM Manager: Could not open serial port\n");
-        return PTR_ERR(serial_port);  // Returnera felet
-    }
-
-    // Skicka kommandot till den seriella porten
-    write_result = kernel_write(serial_port, command, len, 0);
-    if (write_result < 0) {
-        filp_close(serial_port, NULL);  // Stäng porten om skrivningen misslyckades
-        return write_result;
-    }
-
-    msleep(150);  
-
-    memset(kernel_buffer, 0, MAX_BUFFER_SIZE);  // Rensa bufferten
-    read_len = kernel_read(serial_port, kernel_buffer, MAX_BUFFER_SIZE - 1, 0);  // Läs svar från Arduino
-
-    filp_close(serial_port, NULL);  
-
-    if (read_len > 0) {
-        kernel_buffer[read_len] = '\0';  // Avslutar strängen
-        printk(KERN_INFO "SRAM Manager: Response received: %s\n", kernel_buffer);  // Logga svaret
-    }
-
-    msleep(50);  // Kort paus för att säkerställa att seriella porten är redo för nästa operation
-
-    return len;  
-}
-
-// filoperationerna för enheten
-static struct file_operations fops = {
-    .open = device_open,    
-    .read = device_read,       
-    .write = device_write,    
-    .release = device_close,   
-};
-
-// Initieringsfunktion som körs när modulen laddas
-static int __init sram_manager_init(void) {
-    printk(KERN_INFO "SRAM Manager: Module initialization\n");
-
-    // Registrera en karaktärsenhet med dynamiskt huvudnummer
-    dev_major = register_chrdev(0, DRIVER_NAME, &fops);
-    if (dev_major < 0) return dev_major;
-
-    // Skapa en enhetsklass
-    sram_dev_class = class_create(THIS_MODULE, CLASS_LABEL);
-    if (IS_ERR(sram_dev_class)) {
-        unregister_chrdev(dev_major, DRIVER_NAME);
-        return PTR_ERR(sram_dev_class);
-    }
-
-    // Skapa en enhet i /dev
-    sram_dev = device_create(sram_dev_class, NULL, MKDEV(dev_major, 0), NULL, DRIVER_NAME);
-    if (IS_ERR(sram_dev)) {
-        class_destroy(sram_dev_class);
-        unregister_chrdev(dev_major, DRIVER_NAME);
-        return PTR_ERR(sram_dev);
-    }
-
-    printk(KERN_INFO "SRAM Manager: Device created successfully\n");
+static int dev_open(struct inode *inodep, struct file *filep) {
+    printk(KERN_INFO "SRAM Control: Device opened\n");
     return 0;
 }
 
-// Avslutningsfunktion som körs när modulen avinstalleras
-static void __exit sram_manager_exit(void) {
-    device_destroy(sram_dev_class, MKDEV(dev_major, 0));  // Ta bort enheten
-    class_unregister(sram_dev_class);  // Avregistrera enhetsklassen
-    class_destroy(sram_dev_class);     // Förstör enhetsklassen
-    unregister_chrdev(dev_major, DRIVER_NAME);  // Avregistrera karaktärsenheten
-    printk(KERN_INFO "SRAM Manager: Module exited\n");
+static int dev_release(struct inode *inodep, struct file *filep) {
+    printk(KERN_INFO "SRAM Control: Device closed\n");
+    return 0;
 }
 
-module_init(sram_manager_init);  // Ange initieringsfunktionen
-module_exit(sram_manager_exit);  // Ange avslutningsfunktionen
+static ssize_t dev_read(struct file *filep, char *buffer, size_t len, loff_t *offset) {
+    int bytes_read = 0;
+    int error_count = 0;
+    
+    if (*offset >= strlen(response_buffer)) return 0;
+    
+    bytes_read = strlen(response_buffer) - *offset;
+    if (bytes_read > len) bytes_read = len;
+    
+    error_count = copy_to_user(buffer, response_buffer + *offset, bytes_read);
+    
+    if (error_count == 0) {
+        *offset += bytes_read;
+        return bytes_read;
+    } else {
+        return -EFAULT;
+    }
+}
 
-MODULE_LICENSE("GPL");               // Licens för modulen
-MODULE_AUTHOR("Modified by ChatGPT"); // Författarinformation
-MODULE_DESCRIPTION("SRAM Manager for Arduino Communication"); // Beskrivning av modulen
-MODULE_VERSION("0.2");               // Versionsnummer
+static ssize_t dev_write(struct file *filep, const char *buffer, size_t len, loff_t *offset) {
+    char cmd[32];
+    struct file *tty_file;
+    int ret, read_count = 0;
+    char read_buf[BUFFER_SIZE];
+
+    if (len > 31) len = 31;
+    ret = copy_from_user(cmd, buffer, len);
+    if (ret) {
+        printk(KERN_ALERT "SRAM Control: Failed to copy from user\n");
+        return -EFAULT;
+    }
+    cmd[len] = '\0';
+    
+    tty_file = filp_open("/dev/ttyACM0", O_RDWR, 0);
+    if (IS_ERR(tty_file)) {
+        printk(KERN_ALERT "SRAM Control: Failed to open Arduino port\n");
+        return PTR_ERR(tty_file);
+    }
+
+    ret = kernel_write(tty_file, cmd, len, 0);
+    if (ret < 0) {
+        filp_close(tty_file, NULL);
+        return ret;
+    }
+
+    // Introduce a delay to allow Arduino to process the command
+    msleep(100);  // Wait 100ms for Arduino to process and respond
+    
+    memset(response_buffer, 0, BUFFER_SIZE);
+    read_count = kernel_read(tty_file, response_buffer, BUFFER_SIZE - 1, 0);
+    
+    filp_close(tty_file, NULL);
+
+    if (read_count > 0) {
+        response_buffer[read_count] = '\0';
+        printk(KERN_INFO "SRAM Control: Received response: %s\n", response_buffer);
+    }
+
+    // Introduce another delay after reading response from Arduino
+    msleep(50);  // Wait 50ms to ensure serial port buffer has settled
+
+    return len;
+}
+
+static struct file_operations fops = {
+    .open = dev_open,
+    .read = dev_read,
+    .write = dev_write,
+    .release = dev_release,
+};
+
+static int __init sram_init(void) {
+    printk(KERN_INFO "SRAM Control: Initializing module\n");
+    
+    major_number = register_chrdev(0, DEVICE_NAME, &fops);
+    if (major_number < 0) return major_number;
+    
+    sram_class = class_create(CLASS_NAME);
+    if (IS_ERR(sram_class)) {
+        unregister_chrdev(major_number, DEVICE_NAME);
+        return PTR_ERR(sram_class);
+    }
+    
+    sram_device = device_create(sram_class, NULL, MKDEV(major_number, 0), NULL, DEVICE_NAME);
+    if (IS_ERR(sram_device)) {
+        class_destroy(sram_class);
+        unregister_chrdev(major_number, DEVICE_NAME);
+        return PTR_ERR(sram_device);
+    }
+    
+    return 0;
+}
+
+static void __exit sram_exit(void) {
+    device_destroy(sram_class, MKDEV(major_number, 0));
+    class_unregister(sram_class);
+    class_destroy(sram_class);
+    unregister_chrdev(major_number, DEVICE_NAME);
+}
+
+module_init(sram_init);
+module_exit(sram_exit);
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Your Name");
+MODULE_DESCRIPTION("SRAM Control through Arduino");
+MODULE_VERSION("0.1");
