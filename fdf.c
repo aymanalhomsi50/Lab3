@@ -18,30 +18,30 @@ struct pseudo_header {
 };
 
 // Checksum function
-unsigned short csum(unsigned short *ptr, int nbytes) {
+unsigned short csum(unsigned short *ptr, int nbytes) { //beräknar checksum för paket 
     register long sum;
     unsigned short oddbyte;
     register short answer;
 
     sum = 0;
-    while (nbytes > 1) {
+    while (nbytes > 1) { // summer alla 16-bits ord 
         sum += *ptr++;
         nbytes -= 2;
     }
-    if (nbytes == 1) {
+    if (nbytes == 1) { // om ett byte återstår 
         oddbyte = 0;
         *((u_char*)&oddbyte) = *(u_char*)ptr;
         sum += oddbyte;
     }
 
-    sum = (sum >> 16) + (sum & 0xffff);
+    sum = (sum >> 16) + (sum & 0xffff); // lägg till carry-bitar
     sum = sum + (sum >> 16);
-    answer = (short)~sum;
+    answer = (short)~sum; // invertera bitarna 
     return(answer);
 }
 
 int main(void) {
-    int s = socket(PF_INET, SOCK_RAW, IPPROTO_TCP);  // Create raw socket
+    int s = socket(PF_INET, SOCK_RAW, IPPROTO_TCP);  // skapa en rå socket för att skcika TCP
     if (s == -1) {
         perror("Failed to create socket");
         exit(1);
@@ -49,40 +49,40 @@ int main(void) {
 
     char datagram[4096], source_ip[32], *data, *pseudogram;
 
-    memset(datagram, 0, 4096);  // Zero out the packet buffer
+    memset(datagram, 0, 4096);  // Nollställer buffert
 
-    struct iphdr *iph = (struct iphdr *)datagram;  // IP header
-    struct tcphdr *tcph = (struct tcphdr *)(datagram + sizeof(struct ip));  // TCP header
+    struct iphdr *iph = (struct iphdr *)datagram;  // pekar till ip header
+    struct tcphdr *tcph = (struct tcphdr *)(datagram + sizeof(struct ip));  // pekar till TCP header 
     struct sockaddr_in sin;
     struct pseudo_header psh;
 
     data = datagram + sizeof(struct iphdr) + sizeof(struct tcphdr);
-    strcpy(data, "Hello, this is the payload!");  // Your custom data
+    strcpy(data, "Hello, this is the payload!");  // Här sätter vi vilken sträng vi vill att det ska ta emot 
 
-    strcpy(source_ip, "11.111.1.2");  // Source IP (host machine)
+    strcpy(source_ip, "11.111.1.2");  // Vilken IP adress det ska komma till 
     sin.sin_family = AF_INET;
-    sin.sin_port = htons(1234);  // Port number (target port on the container)
-    sin.sin_addr.s_addr = inet_addr("172.17.0.2");  // Destination IP (Docker container IP)
+    sin.sin_port = htons(1234);  // Här är portnummer på container 
+    sin.sin_addr.s_addr = inet_addr("172.17.0.2");  // Mål ip adresss
 
     // Fill in the IP Header
-    iph->ihl = 5;
+    iph->ihl = 5; // ip header i 32bitars
     iph->version = 4;
     iph->tos = 0;
-    iph->tot_len = sizeof(struct iphdr) + sizeof(struct tcphdr) + strlen(data);
-    iph->id = htonl(54321);  // ID of this packet
+    iph->tot_len = sizeof(struct iphdr) + sizeof(struct tcphdr) + strlen(data); //total längd 
+    iph->id = htonl(54321);  // paketets id 
     iph->frag_off = 0;
-    iph->ttl = 255;
-    iph->protocol = IPPROTO_TCP;
-    iph->check = 0;  // Set to 0 before calculating checksum
+    iph->ttl = 255; // time to live 
+    iph->protocol = IPPROTO_TCP; // TPC protokoll
+    iph->check = 0;  //Nolställa checksumma innan beräknning 
     iph->saddr = inet_addr(source_ip);  // Source IP (host machine)
     iph->daddr = sin.sin_addr.s_addr;
     // IP checksum
-    iph->check = csum((unsigned short *)datagram, iph->tot_len);
+    iph->check = csum((unsigned short *)datagram, iph->tot_len); // berkäna checksumma
 
     // TCP Header for SYN
-    tcph->source = htons(1234);  // Source port
+    tcph->source = htons(1234);  // Källa prot 
     tcph->dest = htons(1234);    // Destination port
-    tcph->seq = 0;               // Initial sequence number
+    tcph->seq = 0;               //sekvens nummer 
     tcph->ack_seq = 0;           // ACK number for SYN
     tcph->doff = 5;              // TCP header size
     tcph->fin = 0;
