@@ -35,7 +35,7 @@ void setup() {
 
 void loop() {
   if (Serial.available() > 0) { // kontroll om det finns data att läsa från serieporten 
-    char command = Serial.read();  // läs det första kommandot R,W eller C
+    char command = Serial.read();  // läs det första kommandot R,W
     uint16_t addr = 0; // Variable för adress 
     uint8_t data = 0; // variable för data
 
